@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/smtp"
@@ -11,20 +13,21 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	db "github.com/mohamedmuhsinJ/loginAssignment/db"
+	db "github.com/mohamedmuhsinJ/loginAssignment/Db"
 )
 
 type User struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	FirstName   string    `json:"firstName"`
-	LastName    string    `json:"lastName"  validate:"required"`
-	DateOfBirth time.Time `json:"dateofBirth`
+	LastName    string    `json:"lastName" `
+	DateOfBirth time.Time `json:"dateofBirth"`
 	Email       string    `json:"email" gorm:"unique" validate:"email,required" `
 	PhoneNumber string    `json:"phone"`
 	Cv          string    `json:"cv"`
 }
 
 func Register(c *gin.Context) {
+
 	fName := c.PostForm("firstName")
 	lName := c.PostForm("lastName")
 	dateOfBirth := c.PostForm("DateOfBirth")
@@ -51,9 +54,9 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	c.SaveUploadedFile(cvPath, "./public/"+ext)
+	c.SaveUploadedFile(cvPath, "./public/"+cvPath.Filename)
 
-	dOB, err := time.Parse("2006-01-02", dateOfBirth)
+	dOB, err := time.Parse(`"2006-01-02"`, dateOfBirth)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
@@ -74,7 +77,7 @@ func Register(c *gin.Context) {
 		Email:       email,
 		PhoneNumber: phone,
 		DateOfBirth: dOB,
-		Cv:          ext,
+		Cv:          cvPath.Filename,
 	}
 	rec := db.Db.Create(&user)
 
@@ -115,7 +118,42 @@ func sendEmailConfirmation(email string) {
 	err = smtp.SendMail("smtp.gmail.com:587", auth, from, []string{email}, []byte(subject))
 	if err != nil {
 
-		log.Fatalf("failed to connect smtp")
+		fmt.Printf("failed to connect smtp")
 	}
 
+}
+
+func Home(c *gin.Context) {
+	email := c.Param("email")
+	var user User
+	db.Db.First(&user, email)
+	if user.ID == 0 {
+		c.JSON(400, gin.H{
+			"error": "user doesnot exists",
+		})
+
+		return
+
+	}
+	cv := user.Cv
+	ext := filepath.Ext(cv)
+	cvcontent, err := ioutil.ReadFile("./public/" + cv)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctype := getFileContentType(ext)
+	c.Data(http.StatusOK, ctype, cvcontent)
+
+}
+
+func getFileContentType(Ext string) string {
+	switch Ext {
+	case ".pdf":
+		return "application/pdf"
+	case ".doc", ".docx":
+		return "application/msword"
+	default:
+		return "application/octet-stream"
+	}
 }
